@@ -13,9 +13,10 @@ from flask import Response
 from flask_admin import BaseView, expose
 from prometheus_client import generate_latest, REGISTRY
 from prometheus_client.core import GaugeMetricFamily
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, text
 
 from airflow_prometheus_exporter.xcom_config import load_xcom_config
+from datetime import datetime, timedelta
 
 CANARY_DAG = "canary_dag"
 
@@ -43,6 +44,7 @@ def get_dag_state_info():
                 DagRun.state,
                 func.count(DagRun.state).label("count"),
             )
+            .filter(text("execution_date > NOW() - interval \'14 days\'"))
             .group_by(DagRun.dag_id, DagRun.state)
             .subquery()
         )
@@ -76,6 +78,7 @@ def get_dag_duration_info():
                 DagModel.is_paused == False,
                 DagRun.state == State.SUCCESS,
                 DagRun.end_date.isnot(None),
+                text("execution_date > NOW() - interval \'14 days\'"),
             )
             .group_by(DagRun.dag_id)
             .subquery()
@@ -120,10 +123,6 @@ def get_dag_duration_info():
                     == dag_start_dt_query.c.execution_date,
                 ),
             )
-            .filter(
-                TaskInstance.start_date.isnot(None),
-                TaskInstance.end_date.isnot(None),
-            )
             .all()
         )
 
@@ -143,8 +142,9 @@ def get_task_state_info():
                 TaskInstance.state,
                 func.count(TaskInstance.dag_id).label("value"),
             )
+            .filter(text("execution_date > NOW() - interval \'14 days\'"),)
             .group_by(
-                TaskInstance.dag_id, TaskInstance.task_id, TaskInstance.state
+                TaskInstance.dag_id, TaskInstance.task_id, TaskInstance.state,
             )
             .subquery()
         )
@@ -482,6 +482,7 @@ REGISTRY.register(MetricsCollector())
 
 if RBAC:
     from flask_appbuilder import BaseView as FABBaseView, expose as FABexpose
+
 
     class RBACMetrics(FABBaseView):
         route_base = "/admin/metrics/"
